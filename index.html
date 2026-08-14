@@ -122,6 +122,10 @@
     ::-webkit-scrollbar-thumb:hover {
       background: #404040;
     }
+
+    input[type=range] {
+      accent-color: #10b981;
+    }
   </style>
 </head>
 <body class="font-sans antialiased min-h-screen text-gray-200 selection:bg-white selection:text-black">
@@ -129,6 +133,118 @@
 
   <script type="text/babel">
     const { useState, useEffect, useRef, useMemo } = React;
+
+    // Available Notification Sound Presets (Web Audio API)
+    const SOUND_PRESETS = [
+      { id: 'chime', name: 'Двойной колокольчик' },
+      { id: 'digital', name: 'Цифровой будильник' },
+      { id: 'soft', name: 'Мягкий гонг' },
+      { id: 'marimba', name: 'Маримба' }
+    ];
+
+    // Synthesized sound player with preset selection
+    function playNotificationSoundPreset(presetId = 'chime') {
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        const ctx = new AudioCtx();
+        if (ctx.state === 'suspended') {
+          ctx.resume();
+        }
+        const now = ctx.currentTime;
+
+        if (presetId === 'digital') {
+          // Beep beep digital alarm pattern
+          for (let i = 0; i < 3; i++) {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(1046.5, now + i * 0.15); // C6
+            gain.gain.setValueAtTime(0.15, now + i * 0.15);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.15 + 0.1);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now + i * 0.15);
+            osc.stop(now + i * 0.15 + 0.1);
+          }
+        } else if (presetId === 'soft') {
+          // Warm soothing gong sound
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(432, now); // A4
+          osc.frequency.exponentialRampToValueAtTime(216, now + 0.8);
+          gain.gain.setValueAtTime(0.4, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now);
+          osc.stop(now + 1.2);
+        } else if (presetId === 'marimba') {
+          // Playful wooden marimba triad (C5 - E5 - G5)
+          const notes = [523.25, 659.25, 783.99];
+          notes.forEach((freq, idx) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(freq, now + idx * 0.12);
+            gain.gain.setValueAtTime(0.3, now + idx * 0.12);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.12 + 0.4);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now + idx * 0.12);
+            osc.stop(now + idx * 0.12 + 0.4);
+          });
+        } else {
+          // Default Chime (E5 -> A5 -> E6)
+          const osc1 = ctx.createOscillator();
+          const osc2 = ctx.createOscillator();
+          const gain = ctx.createGain();
+
+          osc1.type = 'sine';
+          osc2.type = 'sine';
+
+          osc1.frequency.setValueAtTime(659.25, now);
+          osc1.frequency.exponentialRampToValueAtTime(880, now + 0.18);
+
+          osc2.frequency.setValueAtTime(880, now + 0.18);
+          osc2.frequency.exponentialRampToValueAtTime(1318.51, now + 0.35);
+
+          gain.gain.setValueAtTime(0.35, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + 0.9);
+
+          osc1.connect(gain);
+          osc2.connect(gain);
+          gain.connect(ctx.destination);
+
+          osc1.start(now);
+          osc1.stop(now + 0.35);
+          osc2.start(now + 0.18);
+          osc2.stop(now + 0.9);
+        }
+      } catch (e) {
+        console.log("Audio chime playback notice:", e);
+      }
+    }
+
+    // Repeating Alarm Chime (plays like an alarm clock until stopped)
+    let alarmTimerId = null;
+    function startAlarmSound(soundEnabled = true, presetId = 'chime') {
+      stopAlarmSound();
+      if (!soundEnabled) return;
+
+      playNotificationSoundPreset(presetId);
+      alarmTimerId = setInterval(() => {
+        playNotificationSoundPreset(presetId);
+      }, 1200);
+    }
+
+    function stopAlarmSound() {
+      if (alarmTimerId) {
+        clearInterval(alarmTimerId);
+        alarmTimerId = null;
+      }
+    }
 
     // Curated High-Quality Ambient Streams
     const RADIO_STATIONS = [
@@ -141,9 +257,10 @@
 
     // Helper to format total seconds to HH:MM:SS or MM:SS
     function formatTime(totalSeconds, alwaysHours = false) {
-      const h = Math.floor(totalSeconds / 3600);
-      const m = Math.floor((totalSeconds % 3600) / 60);
-      const s = totalSeconds % 60;
+      const sec = Math.max(0, Math.floor(totalSeconds));
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      const s = sec % 60;
       const pad = (n) => String(n).padStart(2, '0');
 
       if (h > 0 || alwaysHours) {
@@ -161,11 +278,11 @@
       return `${m} мин`;
     }
 
-    // Get today's Russian date string format (e.g., "13 августа 2026")
+    // Get today's Russian date string format (e.g., "14 августа 2026 г.")
     function getTodayFormattedDate() {
       const date = new Date();
       const options = { day: 'numeric', month: 'long', year: 'numeric' };
-      return date.toLocaleDateString('ru-RU', options);
+      return date.toLocaleDateString('ru-RU', options) + ' г.';
     }
 
     const INITIAL_TASKS = [
@@ -174,6 +291,8 @@
         title: getTodayFormattedDate(),
         plannedMinutes: 480,
         actualSeconds: 0,
+        totalWithPausesSeconds: 0,
+        startedAt: null,
         overtimeSeconds: 0,
         completed: false,
         expanded: false,
@@ -185,6 +304,8 @@
         title: 'Работа над видео',
         plannedMinutes: 180,
         actualSeconds: 0,
+        totalWithPausesSeconds: 0,
+        startedAt: null,
         overtimeSeconds: 0,
         completed: false,
         expanded: false,
@@ -195,6 +316,8 @@
             title: 'Концепт',
             plannedMinutes: 60,
             actualSeconds: 0,
+            totalWithPausesSeconds: 0,
+            startedAt: null,
             overtimeSeconds: 0,
             completed: false,
             pauseCount: 0,
@@ -205,6 +328,8 @@
             title: 'Раскадровка',
             plannedMinutes: 60,
             actualSeconds: 0,
+            totalWithPausesSeconds: 0,
+            startedAt: null,
             overtimeSeconds: 0,
             completed: false,
             pauseCount: 0,
@@ -217,30 +342,40 @@
     // ==========================================
     // LUXURY ANALOG CLOCK COMPONENT
     // ==========================================
-    function AnalogTimerClock({ displaySeconds, totalPlannedSeconds, overtimeSeconds, isOvertime, pomodoroEnabled, pomodoroFocusTime, timerRunning, isPaused, isOnBreak, isMusicEnabled }) {
+    function AnalogTimerClock({ 
+      clockSeconds, 
+      displayDigitalSeconds, 
+      totalPlannedSeconds, 
+      overtimeSeconds, 
+      isOvertime, 
+      pomodoroEnabled, 
+      pomodoroFocusTime, 
+      timerRunning, 
+      isPaused, 
+      isOnBreak, 
+      isMusicEnabled 
+    }) {
       const center = 200;
       const clockRadius = 145;
       const strokeWidth = 10;
       const circum = 2 * Math.PI * (clockRadius - strokeWidth / 2);
 
-      // Rotation angles in degrees
-      const secondAngle = (displaySeconds % 60) * 6;
-      const minuteAngle = ((displaySeconds / 60) % 60) * 6;
-      const hourAngle = ((displaySeconds / 3600) % 12) * 30;
+      // Rotation angles in degrees (always strictly clockwise based on elapsed clockSeconds)
+      const secondAngle = (clockSeconds % 60) * 6;
+      const minuteAngle = ((clockSeconds / 60) % 60) * 6;
+      const hourAngle = ((clockSeconds / 3600) % 12) * 30;
 
       // Arc Ratio Logic:
-      // If Pomodoro is ON: Green Arc shows progress of current Pomodoro Focus cycle (0 to pomodoroFocusTime)
-      // If Pomodoro is OFF: Green Arc shows progress towards plannedMinutes (0 to totalPlannedSeconds). If overtime, Amber arc.
       let progressRatio = 0;
       if (isOnBreak && totalPlannedSeconds > 0) {
-        progressRatio = Math.min(1, displaySeconds / totalPlannedSeconds);
+        progressRatio = Math.min(1, clockSeconds / totalPlannedSeconds);
       } else if (pomodoroEnabled) {
         const cycleSec = pomodoroFocusTime * 60;
-        progressRatio = Math.min(1, (displaySeconds % cycleSec) / cycleSec);
+        progressRatio = Math.min(1, (clockSeconds % cycleSec) / cycleSec);
       } else if (totalPlannedSeconds > 0) {
-        progressRatio = Math.min(1, displaySeconds / totalPlannedSeconds);
+        progressRatio = Math.min(1, clockSeconds / totalPlannedSeconds);
       } else {
-        progressRatio = (displaySeconds % 60) / 60;
+        progressRatio = (clockSeconds % 60) / 60;
       }
       const strokeDashoffset = circum - progressRatio * circum;
 
@@ -279,11 +414,7 @@
         return result;
       }, [clockRadius, center, isPaused, isOvertime]);
 
-      // Color strategy:
-      // Green = Standard task / Pomodoro cycle progress
-      // Amber/Orange = Overtime exceeded task time
-      // Red = Pause
-      // Blue = Break
+      // Color strategy
       const glowStopColor1 = isPaused ? '#f43f5e' : isOnBreak ? '#3b82f6' : !isMusicEnabled ? '#ffffff' : isOvertime ? '#f59e0b' : '#10b981';
       const glowStopColor2 = isPaused ? '#9f1239' : isOnBreak ? '#1d4ed8' : !isMusicEnabled ? '#cccccc' : isOvertime ? '#d97706' : '#059669';
 
@@ -465,7 +596,7 @@
             <foreignObject x={center - 95} y={center + 25} width="190" height="65">
               <div className="text-center">
                 <div className={`text-2xl font-mono font-black tracking-tight ${isPaused ? 'text-accent-rose' : isOnBreak ? 'text-blue-400' : isOvertime ? 'text-accent-amber' : 'text-white'}`}>
-                  {isOvertime ? `+${formatTime(overtimeSeconds)}` : formatTime(displaySeconds)}
+                  {isOvertime ? `+${formatTime(overtimeSeconds)}` : formatTime(displayDigitalSeconds)}
                 </div>
                 <div className={`text-[10px] uppercase tracking-widest font-bold mt-0.5 ${isPaused ? 'text-accent-rose' : isOvertime ? 'text-accent-amber' : 'text-gray-400'}`}>
                   {isOnBreak ? '☕ ПЕРЕРЫВ (ОТДЫХ)' : isPaused ? '⏸ НА ПАУЗЕ' : isOvertime ? '⚠️ ДОП. ВРЕМЯ' : timerRunning ? '▶ В РАБОТЕ' : '⏹ ГОТОВ К СТАРТУ'}
@@ -487,11 +618,12 @@
       });
 
       const [isTaskListExpanded, setIsTaskListExpanded] = useState(true);
+      const [isPomodoroPanelExpanded, setIsPomodoroPanelExpanded] = useState(false);
       const [activeTaskId, setActiveTaskId] = useState(null);
       const [timerRunning, setTimerRunning] = useState(false);
       const [isPausedManual, setIsPausedManual] = useState(false);
       const [isOvertime, setIsOvertime] = useState(false);
-      
+
       // Work elapsed time (seconds from 0 onwards)
       const [elapsedWorkSeconds, setElapsedWorkSeconds] = useState(0);
       const [overtimeSeconds, setOvertimeSeconds] = useState(0);
@@ -501,15 +633,21 @@
       const [pomodoroFocusTime, setPomodoroFocusTime] = useState(45);
       const [pomodoroBreakTime, setPomodoroBreakTime] = useState(10);
       const [focusIntervalSeconds, setFocusIntervalSeconds] = useState(0);
-      
-      // Break State (Countdown timer)
+
+      // Pause Sound & Preset State
+      const [isPauseSoundEnabled, setIsPauseSoundEnabled] = useState(true);
+      const [selectedPauseSoundId, setSelectedPauseSoundId] = useState('chime');
+
+      // Break State (Countdown timer + elapsed seconds for clockwise hands)
       const [isOnBreak, setIsOnBreak] = useState(false);
       const [breakRemainingSeconds, setBreakRemainingSeconds] = useState(0);
+      const [breakElapsedSeconds, setBreakElapsedSeconds] = useState(0);
       const [pomodoroCount, setPomodoroCount] = useState(0);
 
-      // Radio Selector State (Arrow controls)
+      // Radio Selector & Volume State
       const [currentStationIndex, setCurrentStationIndex] = useState(1);
       const [isMusicEnabled, setIsMusicEnabled] = useState(false);
+      const [volume, setVolume] = useState(0.7);
       const audioRef = useRef(null);
 
       // Navigation & Modal states
@@ -534,29 +672,33 @@
         }
       }, [isPausedManual]);
 
-      // Audio playback effect
+      // Audio playback & volume effect
       useEffect(() => {
         if (!audioRef.current) return;
+        audioRef.current.volume = volume;
         if (isMusicEnabled && (timerRunning || isOnBreak)) {
           audioRef.current.play().catch(err => console.log("Audio play restriction:", err));
         } else {
           audioRef.current.pause();
         }
-      }, [isMusicEnabled, timerRunning, isOnBreak, currentStationIndex]);
+      }, [isMusicEnabled, timerRunning, isOnBreak, currentStationIndex, volume]);
 
       const handleToggleMusic = () => {
         const nextState = !isMusicEnabled;
         setIsMusicEnabled(nextState);
         if (nextState && audioRef.current) {
+          audioRef.current.volume = volume;
           audioRef.current.play().catch(e => console.log("Gesture playback triggered"));
         } else if (audioRef.current) {
           audioRef.current.pause();
         }
       };
 
-      // Toggling Pomodoro auto-pauses active timer so it starts from 'Приступить'
+      // Toggling Pomodoro auto-expands settings when ON, collapses when OFF
       const handleTogglePomodoro = (enabled) => {
         setPomodoroEnabled(enabled);
+        setIsPomodoroPanelExpanded(enabled);
+
         if (timerRunning) {
           setTimerRunning(false);
           setIsPausedManual(true);
@@ -635,72 +777,100 @@
         setFocusIntervalSeconds(0);
       };
 
-      // TIMER TICK LOGIC
+      // TIMER TICK LOGIC (Master Clock 1 sec)
       useEffect(() => {
-        let interval = null;
-
-        if (timerRunning) {
-          interval = setInterval(() => {
-            // MODE A: BREAK TIMER (COUNTDOWN)
-            if (isOnBreak) {
-              setBreakRemainingSeconds(prev => {
-                if (prev <= 1) {
-                  setIsOnBreak(false);
-                  setTimerRunning(false);
-                  setFocusIntervalSeconds(0);
-                  setShowBreakFinishedModal(true);
-                  return 0;
-                }
-                return prev - 1;
-              });
-              return;
-            }
-
-            // MODE B: WORK TIMER (COUNT-UP)
-            const targetPlannedSec = activeTask ? (activeTask.plannedMinutes || 60) * 60 : 0;
-
-            setElapsedWorkSeconds(prevSec => {
-              const nextSec = prevSec + 1;
-              if (!pomodoroEnabled && targetPlannedSec > 0 && nextSec >= targetPlannedSec && !isOvertime) {
-                setIsOvertime(true);
-                setShowTaskOvertimeModal(true);
-              }
-              return nextSec;
-            });
-
-            if (isOvertime && !pomodoroEnabled) {
-              setOvertimeSeconds(prev => prev + 1);
-            }
-
-            if (activeTaskId) {
+        let interval = setInterval(() => {
+          // Increment totalWithPausesSeconds for active task whenever started (unless completed)
+          if (activeTaskId) {
+            const activeTaskObj = findTask(tasks, activeTaskId);
+            if (activeTaskObj && activeTaskObj.startedAt && !activeTaskObj.completed) {
               setTasks(prevTasks => updateTaskInTree(prevTasks, activeTaskId, (t) => ({
                 ...t,
-                actualSeconds: t.actualSeconds + 1,
-                overtimeSeconds: isOvertime ? (t.overtimeSeconds || 0) + 1 : t.overtimeSeconds
+                totalWithPausesSeconds: (t.totalWithPausesSeconds || t.actualSeconds || 0) + 1
               })));
             }
+          }
 
-            // Pomodoro Interval Check
-            if (pomodoroEnabled) {
-              setFocusIntervalSeconds(prev => {
-                const nextVal = prev + 1;
-                if (nextVal >= pomodoroFocusTime * 60) {
-                  setTimerRunning(false);
-                  setShowBreakPromptModal(true);
-                  setPomodoroCount(c => c + 1);
-                  return 0;
-                }
-                return nextVal;
-              });
+          // If Break Modal or Overtime Modal is showing, actual work seconds CONTINUE to accumulate until break/pause is selected!
+          if (showBreakPromptModal && activeTaskId && activeTask && !activeTask.completed) {
+            setElapsedWorkSeconds(prev => prev + 1);
+            setTasks(prevTasks => updateTaskInTree(prevTasks, activeTaskId, (t) => ({
+              ...t,
+              actualSeconds: (t.actualSeconds || 0) + 1
+            })));
+            return;
+          }
+
+          if (!timerRunning) return;
+
+          // MODE A: BREAK TIMER (COUNTDOWN & ELAPSED)
+          if (isOnBreak) {
+            setBreakElapsedSeconds(prev => prev + 1);
+            setBreakRemainingSeconds(prev => {
+              if (prev <= 1) {
+                setIsOnBreak(false);
+                setTimerRunning(false);
+                setFocusIntervalSeconds(0);
+                startAlarmSound(isPauseSoundEnabled, selectedPauseSoundId);
+                setShowBreakFinishedModal(true);
+                return 0;
+              }
+              return prev - 1;
+            });
+            return;
+          }
+
+          // MODE B: WORK TIMER (COUNT-UP)
+          const targetPlannedSec = activeTask ? (activeTask.plannedMinutes || 60) * 60 : 0;
+
+          if (activeTask && activeTask.completed) {
+            // Task is completed: Stop actual work time progression
+            return;
+          }
+
+          setElapsedWorkSeconds(prevSec => {
+            const nextSec = prevSec + 1;
+            if (!pomodoroEnabled && targetPlannedSec > 0 && nextSec >= targetPlannedSec && !isOvertime) {
+              setIsOvertime(true);
+              startAlarmSound(isPauseSoundEnabled, selectedPauseSoundId);
+              setShowTaskOvertimeModal(true);
             }
+            return nextSec;
+          });
 
-          }, 1000);
-        }
+          if (isOvertime && !pomodoroEnabled) {
+            setOvertimeSeconds(prev => prev + 1);
+          }
+
+          if (activeTaskId) {
+            setTasks(prevTasks => updateTaskInTree(prevTasks, activeTaskId, (t) => ({
+              ...t,
+              actualSeconds: (t.actualSeconds || 0) + 1,
+              overtimeSeconds: isOvertime ? (t.overtimeSeconds || 0) + 1 : t.overtimeSeconds
+            })));
+          }
+
+          // Pomodoro Interval Check
+          if (pomodoroEnabled) {
+            setFocusIntervalSeconds(prev => {
+              const nextVal = prev + 1;
+              if (nextVal >= pomodoroFocusTime * 60) {
+                // Break modal pops up! Work time STILL ticks in background while user hesitates.
+                startAlarmSound(isPauseSoundEnabled, selectedPauseSoundId);
+                setShowBreakPromptModal(true);
+                setPomodoroCount(c => c + 1);
+                return 0;
+              }
+              return nextVal;
+            });
+          }
+
+        }, 1000);
 
         return () => clearInterval(interval);
-      }, [timerRunning, activeTaskId, pomodoroEnabled, pomodoroFocusTime, isOnBreak, isOvertime, activeTask]);
+      }, [timerRunning, activeTaskId, pomodoroEnabled, pomodoroFocusTime, isOnBreak, isOvertime, activeTask, tasks, showBreakPromptModal, isPauseSoundEnabled, selectedPauseSoundId]);
 
-      // Start Work Button (Auto-uncompletes completed task & auto-selects Today task if none active)
+      // Start Work Button
       const handleStartTimer = () => {
         let targetId = activeTaskId;
 
@@ -716,6 +886,8 @@
               title: todayDateStr,
               plannedMinutes: 480,
               actualSeconds: 0,
+              totalWithPausesSeconds: 0,
+              startedAt: null,
               overtimeSeconds: 0,
               completed: false,
               expanded: false,
@@ -731,16 +903,20 @@
           setElapsedWorkSeconds(taskObj ? taskObj.actualSeconds : 0);
         }
 
-        // Automatic Uncomplete: If active task was completed, unmark it automatically upon pressing Start
         if (targetId) {
+          const nowFormatted = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
           setTasks(prev => updateTaskInTree(prev, targetId, t => ({
             ...t,
-            completed: false
+            completed: false,
+            startedAt: t.startedAt || nowFormatted,
+            totalWithPausesSeconds: t.totalWithPausesSeconds || t.actualSeconds || 0
           })));
         }
 
+        setIsOnBreak(false);
         setTimerRunning(true);
         setIsPausedManual(false);
+        stopAlarmSound();
         if (isMusicEnabled && audioRef.current) {
           audioRef.current.play().catch(e => console.log(e));
         }
@@ -760,25 +936,39 @@
         }
       };
 
-      // Accept Break Start Prompt Modal
+      // Skip Break & Resume Work immediately
+      const handleSkipBreakAndResumeWork = () => {
+        stopAlarmSound();
+        setIsOnBreak(false);
+        setBreakRemainingSeconds(0);
+        setBreakElapsedSeconds(0);
+        setFocusIntervalSeconds(0);
+        handleStartTimer();
+      };
+
+      // Accept Break Start Prompt Modal -> NOW actual work time stops accumulating!
       const handleAcceptBreakPrompt = () => {
+        stopAlarmSound();
         setShowBreakPromptModal(false);
         setIsOnBreak(true);
         setIsPausedManual(false);
+        setBreakElapsedSeconds(0);
         setBreakRemainingSeconds(pomodoroBreakTime * 60);
         setTimerRunning(true);
       };
 
       // Reject/Skip Break Start Prompt Modal
       const handleSkipBreakPrompt = () => {
+        stopAlarmSound();
         setShowBreakPromptModal(false);
         setIsOnBreak(false);
         setFocusIntervalSeconds(0);
-        setTimerRunning(true);
+        handleStartTimer();
       };
 
       // Accept Break Finished Prompt Modal (Start Work)
       const handleAcceptBreakFinished = () => {
+        stopAlarmSound();
         setShowBreakFinishedModal(false);
         setIsOnBreak(false);
         setFocusIntervalSeconds(0);
@@ -787,6 +977,7 @@
 
       // Close Break Finished Prompt Modal (Remain Paused)
       const handleDismissBreakFinished = () => {
+        stopAlarmSound();
         setShowBreakFinishedModal(false);
         setIsOnBreak(false);
         setFocusIntervalSeconds(0);
@@ -800,6 +991,8 @@
           title: 'Хорошенько поработать',
           plannedMinutes: 60,
           actualSeconds: 0,
+          totalWithPausesSeconds: 0,
+          startedAt: null,
           overtimeSeconds: 0,
           completed: false,
           expanded: false,
@@ -816,6 +1009,8 @@
           title: 'Хорошенько поработать',
           plannedMinutes: 60,
           actualSeconds: 0,
+          totalWithPausesSeconds: 0,
+          startedAt: null,
           overtimeSeconds: 0,
           completed: false,
           expanded: false,
@@ -880,10 +1075,16 @@
 
       const handleToggleComplete = (taskId, e) => {
         if (e) e.stopPropagation();
-        setTasks(prev => updateTaskInTree(prev, taskId, t => ({
-          ...t,
-          completed: !t.completed
-        })));
+        setTasks(prev => updateTaskInTree(prev, taskId, t => {
+          const isNowCompleted = !t.completed;
+          if (isNowCompleted && activeTaskId === taskId) {
+            setTimerRunning(false);
+          }
+          return {
+            ...t,
+            completed: isNowCompleted
+          };
+        }));
       };
 
       const stats = useMemo(() => {
@@ -903,7 +1104,7 @@
             totalActualSec += (item.actualSeconds || 0);
             totalOvertimeSec += (item.overtimeSeconds || 0);
             totalPauseCount += (item.pauseCount || 0);
-            
+
             taskBreakdown.push({
               title: item.title,
               plannedSec: (item.plannedMinutes || 60) * 60,
@@ -1105,45 +1306,59 @@
         );
       };
 
-      const displayClockSeconds = isOnBreak 
-        ? breakRemainingSeconds 
-        : pomodoroEnabled 
-          ? focusIntervalSeconds 
+      const clockSeconds = isOnBreak
+        ? breakElapsedSeconds
+        : pomodoroEnabled
+          ? focusIntervalSeconds
           : elapsedWorkSeconds;
-          
+
+      const displayDigitalSeconds = isOnBreak
+        ? breakRemainingSeconds
+        : pomodoroEnabled
+          ? focusIntervalSeconds
+          : elapsedWorkSeconds;
+
       const displayTotalTargetSeconds = isOnBreak 
         ? pomodoroBreakTime * 60 
         : pomodoroEnabled 
           ? pomodoroFocusTime * 60 
           : (activeTask ? (activeTask.plannedMinutes || 60) * 60 : 0);
 
+      // Calculations for Header Task Metrics
+      const taskStartTimeDisplay = activeTask && activeTask.startedAt ? activeTask.startedAt : '—';
+      const taskTotalWithPausesSec = activeTask ? (activeTask.totalWithPausesSeconds || activeTask.actualSeconds || 0) : 0;
+      const taskActualSec = activeTask ? (activeTask.actualSeconds || 0) : 0;
+      const taskPauseDurationSec = Math.max(0, taskTotalWithPausesSec - taskActualSec);
+      const taskPlannedMins = activeTask ? (activeTask.plannedMinutes || 60) : 480;
+      const taskPauseCount = activeTask ? (activeTask.pauseCount || 0) : 0;
+
       return (
         <div className="min-h-screen flex flex-col transition-colors duration-700">
-          
+
           <audio ref={audioRef} src={activeStation.url} preload="none" />
 
           {/* Header Bar */}
           <header className={`border-b sticky top-0 z-40 backdrop-blur-md transition-colors duration-500 ${
             isPausedManual ? 'border-red-950 bg-[#160609]/95' : 'border-gray-800 bg-[#141414]/95'
           }`}>
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-              <div className="flex items-center space-x-3">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+              <div className="flex items-center space-x-3 shrink-0">
                 <div className={`w-9 h-9 rounded-lg font-extrabold text-lg shadow flex items-center justify-center transition-colors ${
                   isPausedManual ? 'bg-accent-rose text-white' : 'bg-white text-black'
                 }`}>
                   F
                 </div>
-                <div>
+                <div className="hidden sm:block">
                   <h1 className="text-lg font-bold text-white tracking-tight">FocusFlow</h1>
                   <p className="text-[11px] text-gray-400 font-medium">Оставайся в фокусе</p>
                 </div>
               </div>
 
               {/* Navigation Tabs */}
-              <div className="flex items-center space-x-2 bg-[#0b0b0b] p-1 rounded-xl border border-gray-800">
+              <div className="flex items-center space-x-2 bg-[#0b0b0b] p-1 rounded-xl border border-gray-800 shrink-0">
                 <button
                   onClick={() => setActiveTab('planner')}
-                  className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                     activeTab === 'planner'
                       ? isPausedManual ? 'bg-accent-rose text-white shadow' : 'bg-white text-black shadow'
                       : 'text-gray-400 hover:text-white'
@@ -1153,7 +1368,7 @@
                 </button>
                 <button
                   onClick={() => setActiveTab('analytics')}
-                  className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                     activeTab === 'analytics'
                       ? isPausedManual ? 'bg-accent-rose text-white shadow' : 'bg-white text-black shadow'
                       : 'text-gray-400 hover:text-white'
@@ -1163,7 +1378,7 @@
                 </button>
               </div>
 
-              {/* STYLISH RADIO SWITCHER WITH ARROWS */}
+              {/* RADIO & VOLUME SWITCHER */}
               <div className="flex items-center space-x-2 bg-[#0b0b0b] p-1.5 rounded-xl border border-gray-800">
                 <button
                   onClick={handleToggleMusic}
@@ -1180,7 +1395,7 @@
                     )}
                     <span className={`relative inline-flex rounded-full h-2 w-2 ${isMusicEnabled ? 'bg-accent-emerald' : 'bg-gray-500'}`}></span>
                   </span>
-                  <span>Радио</span>
+                  <span className="hidden md:inline">Радио</span>
                 </button>
 
                 {/* Left Arrow Button */}
@@ -1195,7 +1410,7 @@
                 </button>
 
                 {/* Station Name Display */}
-                <div className="px-2 text-center min-w-[120px] max-w-[160px]">
+                <div className="px-2 text-center min-w-[100px] max-w-[140px]">
                   <div className="text-xs font-bold text-white truncate">{activeStation.name}</div>
                   <div className="text-[9px] text-gray-400 truncate">{activeStation.genre}</div>
                 </div>
@@ -1210,6 +1425,23 @@
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                   </svg>
                 </button>
+
+                {/* VOLUME SLIDER */}
+                <div className="flex items-center space-x-1.5 pl-2 border-l border-gray-800">
+                  <svg className="w-3.5 h-3.5 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                  </svg>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={volume}
+                    onChange={(e) => setVolume(parseFloat(e.target.value))}
+                    className="w-14 h-1.5 bg-gray-700 rounded-lg cursor-pointer"
+                    title={`Громкость: ${Math.round(volume * 100)}%`}
+                  />
+                </div>
               </div>
             </div>
           </header>
@@ -1218,34 +1450,110 @@
           <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full">
             {activeTab === 'planner' ? (
               <div className="space-y-8">
-                
+
                 {/* HERO FOCUS TIMER CARD */}
                 <section className={`panel-graphite rounded-2xl p-8 shadow-2xl relative overflow-hidden transition-colors duration-700 ${
                   isPausedManual ? 'border-accent-rose/40' : 'border-gray-800'
                 }`}>
-                  
-                  <div className="flex flex-col md:flex-row items-center justify-between gap-6 border-b border-gray-800 pb-6 mb-6 z-10 relative">
-                    <div>
-                      <h2 className="text-xl font-extrabold text-white flex items-center gap-2">
-                        <span className="text-gray-400 font-semibold">Задача:</span>
-                        <span className={isPausedManual ? 'text-accent-rose' : isOvertime ? 'text-accent-amber' : 'text-accent-emerald'}>
-                          {activeTask ? activeTask.title : getTodayFormattedDate()}
+
+                  <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 border-b border-gray-800 pb-6 mb-6 z-10 relative">
+                    <div className="w-full md:w-auto">
+                      <h2 className="text-xl font-extrabold text-white flex items-center gap-2 mb-3">
+                        <span className="text-gray-400 font-semibold">
+                          {isOnBreak ? 'Режим:' : 'Задача:'}
+                        </span>
+                        <span className={isOnBreak ? 'text-blue-400' : isPausedManual ? 'text-accent-rose' : isOvertime ? 'text-accent-amber' : 'text-accent-emerald'}>
+                          {isOnBreak ? '☕ Перерыв и отдых' : activeTask ? activeTask.title : getTodayFormattedDate()}
                         </span>
                       </h2>
-                      {activeTask && (
-                        <div className="flex items-center space-x-3 mt-1 text-xs text-gray-400">
-                          <span>План времени: <strong className="text-white">{formatMinutesHuman(activeTask.plannedMinutes || 60)}</strong></span>
-                          <span>•</span>
-                          <span>Фактически: <strong className="text-white font-mono">{formatTime(activeTask.actualSeconds)}</strong></span>
-                          <span>•</span>
-                          <span>Пауз: <strong className="text-white">{activeTask.pauseCount || 0}</strong></span>
+
+                      {/* ELEGANT MULTI-ROW GRID TASK METRICS WITH ICONS */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 max-w-4xl">
+
+                        {/* 1. Начало работы */}
+                        <div className="bg-[#0b0b0b] p-2.5 rounded-xl border border-gray-800/80 flex items-center space-x-2">
+                          <div className="p-1.5 rounded-lg bg-emerald-500/10 text-accent-emerald shrink-0">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                            </svg>
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-[10px] text-gray-400 font-medium truncate">Начало работы</div>
+                            <div className="text-xs font-bold text-white font-mono">{taskStartTimeDisplay}</div>
+                          </div>
                         </div>
-                      )}
+
+                        {/* 2. Общее время */}
+                        <div className="bg-[#0b0b0b] p-2.5 rounded-xl border border-gray-800/80 flex items-center space-x-2">
+                          <div className="p-1.5 rounded-lg bg-amber-500/10 text-accent-amber shrink-0">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-[10px] text-gray-400 font-medium truncate">Общее время</div>
+                            <div className="text-xs font-bold text-amber-200 font-mono">{formatTime(taskTotalWithPausesSec)}</div>
+                          </div>
+                        </div>
+
+                        {/* 3. Фактически */}
+                        <div className="bg-[#0b0b0b] p-2.5 rounded-xl border border-gray-800/80 flex items-center space-x-2">
+                          <div className="p-1.5 rounded-lg bg-cyan-500/10 text-cyan-400 shrink-0">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-[10px] text-gray-400 font-medium truncate">Фактически</div>
+                            <div className="text-xs font-bold text-white font-mono">{formatTime(taskActualSec)}</div>
+                          </div>
+                        </div>
+
+                        {/* 4. Время паузы */}
+                        <div className="bg-[#0b0b0b] p-2.5 rounded-xl border border-gray-800/80 flex items-center space-x-2">
+                          <div className="p-1.5 rounded-lg bg-rose-500/10 text-accent-rose shrink-0">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-[10px] text-gray-400 font-medium truncate">Время паузы</div>
+                            <div className="text-xs font-bold text-rose-300 font-mono">{formatTime(taskPauseDurationSec)}</div>
+                          </div>
+                        </div>
+
+                        {/* 5. План времени */}
+                        <div className="bg-[#0b0b0b] p-2.5 rounded-xl border border-gray-800/80 flex items-center space-x-2">
+                          <div className="p-1.5 rounded-lg bg-purple-500/10 text-purple-400 shrink-0">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                            </svg>
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-[10px] text-gray-400 font-medium truncate">План времени</div>
+                            <div className="text-xs font-bold text-white truncate">{formatMinutesHuman(taskPlannedMins)}</div>
+                          </div>
+                        </div>
+
+                        {/* 6. Пауз */}
+                        <div className="bg-[#0b0b0b] p-2.5 rounded-xl border border-gray-800/80 flex items-center space-x-2">
+                          <div className="p-1.5 rounded-lg bg-yellow-500/10 text-accent-gold shrink-0">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                            </svg>
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-[10px] text-gray-400 font-medium truncate">Пауз</div>
+                            <div className="text-xs font-bold text-white font-mono">{taskPauseCount}</div>
+                          </div>
+                        </div>
+
+                      </div>
                     </div>
 
                     {/* STATUS PILL */}
                     {pomodoroEnabled && (
-                      <div className="flex items-center space-x-2.5 bg-[#0b0b0b] px-4 py-2 rounded-xl border border-gray-800">
+                      <div className="flex items-center space-x-2.5 bg-[#0b0b0b] px-4 py-2 rounded-xl border border-gray-800 shrink-0">
                         <span className={`w-2.5 h-2.5 rounded-full ${
                           isOnBreak ? 'bg-blue-500 animate-pulse' : isPausedManual ? 'bg-accent-rose' : 'bg-accent-emerald animate-pulse'
                         }`} />
@@ -1257,7 +1565,8 @@
                   </div>
 
                   <AnalogTimerClock
-                    displaySeconds={displayClockSeconds}
+                    clockSeconds={clockSeconds}
+                    displayDigitalSeconds={displayDigitalSeconds}
                     totalPlannedSeconds={displayTotalTargetSeconds}
                     overtimeSeconds={overtimeSeconds}
                     isOvertime={isOvertime && !pomodoroEnabled}
@@ -1271,7 +1580,18 @@
 
                   {/* TIMER CONTROLS */}
                   <div className="flex flex-wrap items-center justify-center gap-4 mt-6 z-10 relative">
-                    {!timerRunning ? (
+                    {/* If ON BREAK: Show "Продолжить работу" to skip break immediately, instead of pause */}
+                    {isOnBreak ? (
+                      <button
+                        onClick={handleSkipBreakAndResumeWork}
+                        className="px-10 py-4 bg-accent-emerald hover:bg-accent-emeraldHover text-black font-black text-lg rounded-xl shadow-xl transition-all active:scale-95 flex items-center justify-center shadow-emerald-900/40"
+                      >
+                        <svg className="w-6 h-6 mr-2 fill-current" viewBox="0 0 24 24">
+                          <path d="M8 5v14l11-7z"/>
+                        </svg>
+                        Продолжить работу
+                      </button>
+                    ) : !timerRunning ? (
                       <button
                         onClick={handleStartTimer}
                         className={`px-10 py-4 font-black text-lg rounded-xl shadow-xl transition-all active:scale-95 flex items-center justify-center ${
@@ -1297,12 +1617,13 @@
                       </button>
                     )}
 
-                    {activeTaskId && (
+                    {!isOnBreak && activeTaskId && (
                       <button
                         onClick={() => {
                           handleToggleComplete(activeTaskId);
                           setTimerRunning(false);
                           setIsPausedManual(false);
+                          stopAlarmSound();
                           if (audioRef.current) audioRef.current.pause();
                         }}
                         className={`px-6 py-4 border font-bold rounded-xl text-sm transition ${
@@ -1320,7 +1641,7 @@
 
                 {/* LOWER SECTION */}
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                  
+
                   {/* TASK LIST COLUMN */}
                   <div className="lg:col-span-7 space-y-6">
                     <div className="panel-graphite rounded-2xl p-6 shadow-xl">
@@ -1372,9 +1693,19 @@
                   {/* POMODORO CONFIGURATOR COLUMN */}
                   <div className="lg:col-span-5 space-y-6">
                     <div className="panel-graphite rounded-2xl p-6 shadow-xl space-y-6 border border-gray-800">
-                      
+
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-3">
+                          <button
+                            title={isPomodoroPanelExpanded ? "Свернуть настройки Pomodoro" : "Раскрыть настройки Pomodoro"}
+                            onClick={() => setIsPomodoroPanelExpanded(!isPomodoroPanelExpanded)}
+                            className="p-1.5 rounded-lg bg-[#0b0b0b] hover:bg-[#222222] border border-gray-700 text-white transition"
+                          >
+                            <svg className={`w-4 h-4 transition-transform duration-200 ${isPomodoroPanelExpanded ? 'rotate-90 text-accent-emerald' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                            </svg>
+                          </button>
+
                           <div className="w-8 h-8 rounded-lg bg-[#222222] border border-gray-700 flex items-center justify-center">
                             <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
@@ -1386,7 +1717,7 @@
                           </div>
                         </div>
 
-                        {/* POMODORO TOGGLE: PAUSES TIMER UNTIL USER PRESSES 'ПРИСТУПИТЬ' */}
+                        {/* POMODORO TOGGLE */}
                         <label className="relative inline-flex items-center cursor-pointer">
                           <input
                             type="checkbox"
@@ -1398,93 +1729,167 @@
                         </label>
                       </div>
 
-                      {pomodoroEnabled ? (
-                        <div className="space-y-4 pt-2 border-t border-gray-800">
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="bg-[#0b0b0b] p-3.5 rounded-xl border border-gray-800">
-                              <label className="block text-[11px] font-semibold text-gray-400 mb-1.5">
-                                Фокусировка (мин)
-                              </label>
-                              <div className="flex items-center space-x-2">
-                                <input
-                                  type="number"
-                                  min="5"
-                                  max="120"
-                                  value={pomodoroFocusTime}
-                                  onChange={(e) => setPomodoroFocusTime(Math.max(1, parseInt(e.target.value, 10) || 45))}
-                                  className="w-full bg-[#181818] border border-gray-700 rounded-lg px-3 py-1.5 text-sm font-bold text-white focus:outline-none focus:border-accent-emerald"
-                                />
-                                <span className="text-xs text-gray-500 font-bold">мин</span>
+                      {isPomodoroPanelExpanded && (
+                        pomodoroEnabled ? (
+                          <div className="space-y-4 pt-2 border-t border-gray-800 animate-fadeIn">
+
+                            {/* PAUSE SOUND TOGGLE & PRESET SELECTOR */}
+                            <div className="p-3 bg-[#0b0b0b] rounded-xl border border-gray-800 space-y-3">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center space-x-2">
+                                  {/* Sound Icon Button (matching Radio style) */}
+                                  <button
+                                    onClick={() => setIsPauseSoundEnabled(!isPauseSoundEnabled)}
+                                    className={`p-2 rounded-lg text-xs font-semibold border transition-all flex items-center justify-center ${
+                                      isPauseSoundEnabled 
+                                        ? 'bg-accent-emerald/20 border-accent-emerald/50 text-accent-emerald' 
+                                        : 'bg-[#181818] border-gray-700 text-gray-400 hover:text-white'
+                                    }`}
+                                    title={isPauseSoundEnabled ? "Звук паузы включен" : "Звук паузы выключен"}
+                                  >
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                      {isPauseSoundEnabled ? (
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                                      ) : (
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+                                      )}
+                                    </svg>
+                                  </button>
+
+                                  <div className="text-xs font-semibold text-gray-300">
+                                    Звук паузы
+                                  </div>
+                                </div>
+
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                                  isPauseSoundEnabled 
+                                    ? 'bg-accent-emerald/20 text-accent-emerald border-accent-emerald/40' 
+                                    : 'bg-gray-800 text-gray-500 border-gray-700'
+                                }`}>
+                                  {isPauseSoundEnabled ? 'ВКЛ' : 'ВЫКЛ'}
+                                </span>
+                              </div>
+
+                              {/* Sound Preset Selector with Audio Preview */}
+                              {isPauseSoundEnabled && (
+                                <div className="pt-2 border-t border-gray-800/80 space-y-2">
+                                  <label className="block text-[11px] font-semibold text-gray-400">
+                                    Выберите вариант звука:
+                                  </label>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    {SOUND_PRESETS.map((preset) => {
+                                      const isSelected = selectedPauseSoundId === preset.id;
+                                      return (
+                                        <button
+                                          key={preset.id}
+                                          onClick={() => {
+                                            setSelectedPauseSoundId(preset.id);
+                                            playNotificationSoundPreset(preset.id);
+                                          }}
+                                          className={`py-1.5 px-2.5 rounded-lg text-xs font-medium border flex items-center justify-between transition ${
+                                            isSelected 
+                                              ? 'bg-accent-emerald/20 border-accent-emerald text-accent-emerald font-bold' 
+                                              : 'bg-[#181818] border-gray-800 text-gray-400 hover:text-white'
+                                          }`}
+                                        >
+                                          <span className="truncate">{preset.name}</span>
+                                          <svg className="w-3 h-3 ml-1 shrink-0 fill-current opacity-80" viewBox="0 0 24 24">
+                                            <path d="M8 5v14l11-7z" />
+                                          </svg>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="bg-[#0b0b0b] p-3.5 rounded-xl border border-gray-800">
+                                <label className="block text-[11px] font-semibold text-gray-400 mb-1.5">
+                                  Фокусировка (мин)
+                                </label>
+                                <div className="flex items-center space-x-2">
+                                  <input
+                                    type="number"
+                                    min="5"
+                                    max="120"
+                                    value={pomodoroFocusTime}
+                                    onChange={(e) => setPomodoroFocusTime(Math.max(1, parseInt(e.target.value, 10) || 45))}
+                                    className="w-full bg-[#181818] border border-gray-700 rounded-lg px-3 py-1.5 text-sm font-bold text-white focus:outline-none focus:border-accent-emerald"
+                                  />
+                                  <span className="text-xs text-gray-500 font-bold">мин</span>
+                                </div>
+                              </div>
+
+                              <div className="bg-[#0b0b0b] p-3.5 rounded-xl border border-gray-800">
+                                <label className="block text-[11px] font-semibold text-gray-400 mb-1.5">
+                                  Отдых (мин)
+                                </label>
+                                <div className="flex items-center space-x-2">
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    max="60"
+                                    value={pomodoroBreakTime}
+                                    onChange={(e) => setPomodoroBreakTime(Math.max(1, parseInt(e.target.value, 10) || 10))}
+                                    className="w-full bg-[#181818] border border-gray-700 rounded-lg px-3 py-1.5 text-sm font-bold text-white focus:outline-none focus:border-accent-emerald"
+                                  />
+                                  <span className="text-xs text-gray-500 font-bold">мин</span>
+                                </div>
                               </div>
                             </div>
 
-                            <div className="bg-[#0b0b0b] p-3.5 rounded-xl border border-gray-800">
-                              <label className="block text-[11px] font-semibold text-gray-400 mb-1.5">
-                                Отдых (мин)
-                              </label>
-                              <div className="flex items-center space-x-2">
-                                <input
-                                  type="number"
-                                  min="1"
-                                  max="60"
-                                  value={pomodoroBreakTime}
-                                  onChange={(e) => setPomodoroBreakTime(Math.max(1, parseInt(e.target.value, 10) || 10))}
-                                  className="w-full bg-[#181818] border border-gray-700 rounded-lg px-3 py-1.5 text-sm font-bold text-white focus:outline-none focus:border-accent-emerald"
-                                />
-                                <span className="text-xs text-gray-500 font-bold">мин</span>
+                            <div>
+                              <div className="text-[11px] text-gray-400 font-semibold mb-2">Быстрый выбор:</div>
+                              <div className="grid grid-cols-3 gap-2">
+                                <button
+                                  onClick={() => { setPomodoroFocusTime(25); setPomodoroBreakTime(5); }}
+                                  className={`py-1.5 px-2 rounded-lg text-xs font-semibold border transition ${
+                                    pomodoroFocusTime === 25 && pomodoroBreakTime === 5
+                                      ? 'bg-accent-emerald/20 border-accent-emerald text-accent-emerald'
+                                      : 'bg-[#0b0b0b] border-gray-800 text-gray-400 hover:text-white'
+                                  }`}
+                                >
+                                  25 / 5 мин
+                                </button>
+                                <button
+                                  onClick={() => { setPomodoroFocusTime(45); setPomodoroBreakTime(10); }}
+                                  className={`py-1.5 px-2 rounded-lg text-xs font-semibold border transition ${
+                                    pomodoroFocusTime === 45 && pomodoroBreakTime === 10
+                                      ? 'bg-accent-emerald/20 border-accent-emerald text-accent-emerald'
+                                      : 'bg-[#0b0b0b] border-gray-800 text-gray-400 hover:text-white'
+                                  }`}
+                                >
+                                  45 / 10 мин
+                                </button>
+                                <button
+                                  onClick={() => { setPomodoroFocusTime(60); setPomodoroBreakTime(15); }}
+                                  className={`py-1.5 px-2 rounded-lg text-xs font-semibold border transition ${
+                                    pomodoroFocusTime === 60 && pomodoroBreakTime === 15
+                                      ? 'bg-accent-emerald/20 border-accent-emerald text-accent-emerald'
+                                      : 'bg-[#0b0b0b] border-gray-800 text-gray-400 hover:text-white'
+                                  }`}
+                                >
+                                  60 / 15 мин
+                                </button>
                               </div>
                             </div>
-                          </div>
 
-                          <div>
-                            <div className="text-[11px] text-gray-400 font-semibold mb-2">Быстрый выбор:</div>
-                            <div className="grid grid-cols-3 gap-2">
-                              <button
-                                onClick={() => { setPomodoroFocusTime(25); setPomodoroBreakTime(5); }}
-                                className={`py-1.5 px-2 rounded-lg text-xs font-semibold border transition ${
-                                  pomodoroFocusTime === 25 && pomodoroBreakTime === 5
-                                    ? 'bg-accent-emerald/20 border-accent-emerald text-accent-emerald'
-                                    : 'bg-[#0b0b0b] border-gray-800 text-gray-400 hover:text-white'
-                                }`}
-                              >
-                                25 / 5 мин
-                              </button>
-                              <button
-                                onClick={() => { setPomodoroFocusTime(45); setPomodoroBreakTime(10); }}
-                                className={`py-1.5 px-2 rounded-lg text-xs font-semibold border transition ${
-                                  pomodoroFocusTime === 45 && pomodoroBreakTime === 10
-                                    ? 'bg-accent-emerald/20 border-accent-emerald text-accent-emerald'
-                                    : 'bg-[#0b0b0b] border-gray-800 text-gray-400 hover:text-white'
-                                }`}
-                              >
-                                45 / 10 мин
-                              </button>
-                              <button
-                                onClick={() => { setPomodoroFocusTime(60); setPomodoroBreakTime(15); }}
-                                className={`py-1.5 px-2 rounded-lg text-xs font-semibold border transition ${
-                                  pomodoroFocusTime === 60 && pomodoroBreakTime === 15
-                                    ? 'bg-accent-emerald/20 border-accent-emerald text-accent-emerald'
-                                    : 'bg-[#0b0b0b] border-gray-800 text-gray-400 hover:text-white'
-                                }`}
-                              >
-                                60 / 15 мин
-                              </button>
+                            <div className="p-3 bg-[#0b0b0b] rounded-xl border border-gray-800 flex items-center justify-between text-xs">
+                              <span className="text-gray-400 font-medium">Завершенных циклов фокуса:</span>
+                              <span className="font-bold text-white font-mono bg-[#222222] px-2.5 py-0.5 rounded text-sm">
+                                {pomodoroCount}
+                              </span>
                             </div>
                           </div>
-
-                          <div className="p-3 bg-[#0b0b0b] rounded-xl border border-gray-800 flex items-center justify-between text-xs">
-                            <span className="text-gray-400 font-medium">Завершенных циклов фокуса:</span>
-                            <span className="font-bold text-white font-mono bg-[#222222] px-2.5 py-0.5 rounded text-sm">
-                              {pomodoroCount}
-                            </span>
+                        ) : (
+                          <div className="py-4 text-center border-t border-gray-800 animate-fadeIn">
+                            <p className="text-xs text-gray-500">
+                              Включите переключатель Pomodoro для использования интервального метода.
+                            </p>
                           </div>
-                        </div>
-                      ) : (
-                        <div className="py-4 text-center border-t border-gray-800">
-                          <p className="text-xs text-gray-500">
-                            Включите переключатель Pomodoro для использования интервального метода.
-                          </p>
-                        </div>
+                        )
                       )}
 
                     </div>
@@ -1616,7 +2021,7 @@
                   <div className="panel-graphite rounded-2xl p-6 space-y-4">
                     <h3 className="text-base font-bold text-white flex items-center gap-3">
                       <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none">
-                        <circle cx="12" cy="12" r="8" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="38 12" />
+                        <circle cx="12" cy="12" r="8" stroke="#ffffff" strokeWidth="2.5" strokeLinecap="round" strokeDasharray="38 12" />
                       </svg>
                       <span>Статус выполнения</span>
                     </h3>
@@ -1804,6 +2209,7 @@
                 <div className="flex space-x-3">
                   <button
                     onClick={() => {
+                      stopAlarmSound();
                       setShowTaskOvertimeModal(false);
                       if (activeTaskId) handleToggleComplete(activeTaskId);
                       setTimerRunning(false);
@@ -1814,6 +2220,7 @@
                   </button>
                   <button
                     onClick={() => {
+                      stopAlarmSound();
                       setShowTaskOvertimeModal(false);
                       setIsOvertime(true);
                       setTimerRunning(true);
